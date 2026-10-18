@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG 知识库助手</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --border: #e3e6ea;
+    --text: #1f2329;
+    --muted: #6b7280;
+    --accent: #2f6fed;
+    --accent-soft: #eaf1fe;
+    --danger: #d93025;
+    --ok: #137333;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 14px 24px; display: flex; align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .badge {
+    background: var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 3px 12px; font-size: 12px; white-space: nowrap;
+  }
+  .wrap {
+    max-width: 1200px; margin: 20px auto; padding: 0 20px;
+    display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start;
+  }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+  }
+  .card h2 {
+    font-size: 14px; margin: 0 0 12px; font-weight: 600;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+    background: #fbfbfc; color: var(--text);
+  }
+  textarea { resize: vertical; }
+  input[type=text]:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  button {
+    border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px;
+    cursor: pointer; background: var(--accent); color: #fff; font-family: inherit;
+  }
+  button.ghost { background: #f0f1f3; color: var(--text); }
+  button.danger { background: #fdecea; color: var(--danger); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+  .doc-list { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .doc-list .item {
+    font-size: 12px; color: var(--muted); padding: 4px 0;
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  .doc-list .item span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  #chat { display: flex; flex-direction: column; height: 72vh; min-height: 480px; }
+  #messages { flex: 1; overflow-y: auto; padding-right: 4px; }
+  .msg { margin-bottom: 16px; }
+  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .bubble {
+    background: #f0f1f3; border-radius: 10px; padding: 10px 12px; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user .bubble { background: var(--accent-soft); }
+  .cites { margin-bottom: 6px; }
+  .cite {
+    background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 6px;
+  }
+  .cite .meta { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .cite .txt { color: #444; max-height: 60px; overflow: hidden; position: relative; }
+  .cite .txt.expanded { max-height: none; }
+  .cite .more { color: var(--accent); cursor: pointer; font-size: 11px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+
+  .composer { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
+  .composer .row { margin-top: 8px; }
+  .composer textarea { min-height: 60px; }
+  .tip { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .cursor::after { content: "▍"; color: var(--accent); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RAG 知识库助手</h1>
+  <span class="badge" id="stats">加载中…</span>
+  <span style="flex:1"></span>
+  <span class="badge" style="background:#f0f1f3;color:var(--muted)">LangChain4j + 内存向量库</span>
+</header>
+
+<div class="wrap">
+
+  <!-- 左：知识库管理 -->
+  <div class="card">
+    <h2>知识库</h2>
+
+    <label>文档名称</label>
+    <input type="text" id="docName" placeholder="例如：Redis 面试题">
+
+    <label>内容（.md / .txt 文本）</label>
+    <textarea id="docText" rows="8" placeholder="把要问答的资料粘贴到这里，例如公司规章制度、课程笔记、产品手册…"></textarea>
+
+    <div class="row">
+      <button id="btnAdd">加入知识库</button>
+      <button class="ghost" id="btnUpload">上传文件</button>
+      <input type="file" id="fileInput" accept=".md,.txt" style="display:none">
+    </div>
+
+    <div class="doc-list">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">已入库文档</div>
+      <div id="docList"><div class="item"><span>暂无</span></div></div>
+    </div>
+
+    <div class="row">
+      <button class="danger" id="btnClear">清空并重建</button>
+    </div>
+
+    <div class="tip">
+      知识库保存在本地 <code>data/vector-store.json</code>，重启服务不丢失。<br>
+      首次启动会自动导入 <code>docs/</code> 目录下的笔记。
+    </div>
+  </div>
+
+  <!-- 右：问答 -->
+  <div class="card" id="chat">
+    <h2>问答</h2>
+    <div id="messages"><div class="empty">知识库已就绪，开始提问吧</div></div>
+    <div class="composer">
+      <textarea id="question" placeholder="输入问题，回车发送（Shift+回车换行）"></textarea>
+      <div class="row">
+        <button id="btnSend">发送</button>
+        <button class="ghost" id="btnStop" style="display:none">停止</button>
+      </div>
+      <div class="tip">回答严格依据知识库内容，相似度低于阈值的片段会被丢弃——答不上来时会明说，不会瞎编。</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let controller = null;
+
+/* ---------- 知识库相关 ---------- */
+async function refreshStats() {
+  const [s, docs] = await Promise.all([
+    fetch('/api/stats').then(r => r.json()),
+    fetch('/api/documents').then(r => r.json())
+  ]);
+  $('stats').textContent = `文档 ${s.documents} 篇 · 片段 ${s.segments} 个`;
+  const box = $('docList');
+  box.innerHTML = docs.length
+    ? docs.map(d => `<div class="item"><span title="${escapeHtml(d)}">${escapeHtml(d)}</span></div>`).join('')
+    : '<div class="item"><span>暂无</span></div>';
+}
+
+function escapeHtml(t) {
+  return String(t).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+$('btnAdd').onclick = async () => {
+  const name = $('docName').value.trim();
+  const text = $('docText').value.trim();
+  if (!text) { alert('内容不能为空'); return; }
+  const body = new URLSearchParams({ name, text });
+  const r = await fetch('/api/ingest', { method: 'POST', body });
+  const j = await r.json();
+  if (!j.ok) { alert(j.message || '入库失败'); return; }
+  $('docText').value = '';
+  await refreshStats();
+};
+
+$('btnUpload').onclick = () => $('fileInput').click();
+$('fileInput').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  const r = await fetch('/api/upload', { method: 'POST', body: fd });
+  const j = await r.json();
+  if (!j.ok) { alert(j.message || '上传失败'); return; }
+  e.target.value = '';
+  await refreshStats();
+};
+
+$('btnClear').onclick = async () => {
+  if (!confirm('确定清空知识库并重新导入 docs 目录？')) return;
+  await fetch('/api/clear', { method: 'POST' });
+  await refreshStats();
+};
+
+/* ---------- 问答 ---------- */
+const messages = $('messages');
+
+function addMsg(who, html, cls) {
+  const empty = messages.querySelector('.empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'msg ' + (cls || '');
+  div.innerHTML = `<div class="who">${who}</div><div class="bubble"></div>`;
+  div.querySelector('.bubble').innerHTML = html;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+  return div;
+}
+
+function addCites(cites) {
+  const empty = messages.querySelector('.empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'msg cites';
+  div.innerHTML = cites.map((c, i) => `
+    <div class="cite">
+      <div class="meta">资料 ${i + 1} · 来源：${escapeHtml(c.source)} · 相似度 ${c.score.toFixed(3)}</div>
+      <div class="txt">${escapeHtml(c.text)}</div>
+      <span class="more">展开</span>
+    </div>`).join('');
+  div.querySelectorAll('.more').forEach((btn, i) => {
+    btn.onclick = () => {
+      const txt = div.querySelectorAll('.txt')[i];
+      txt.classList.toggle('expanded');
+      btn.textContent = txt.classList.contains('expanded') ? '收起' : '展开';
+    };
+  });
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function send() {
+  const q = $('question').value.trim();
+  if (!q) return;
+  $('question').value = '';
+
+  addMsg('你', escapeHtml(q), 'user');
+  const bubble = addMsg('助手', '<span style="color:var(--muted)">正在检索知识库…</span>');
+
+  controller = new AbortController();
+  $('btnSend').disabled = true;
+  $('btnStop').style.display = '';
+
+  let full = '';
+  let started = false;
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      body: new URLSearchParams({ question: q }),
+      signal: controller.signal
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      // 按空行切分 SSE 事件
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        handleEvent(raw);
+      }
+    }
+
+    function handleEvent(raw) {
+      let event = 'message', data = '';
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (event === 'citations') {
+        addCites(JSON.parse(data || '[]'));
+      } else if (event === 'token') {
+        if (!started) { bubble.querySelector('.bubble').innerHTML = ''; started = true; }
+        full += data;
+        bubble.querySelector('.bubble').textContent = full;
+        bubble.querySelector('.bubble').classList.add('cursor');
+        messages.scrollTop = messages.scrollHeight;
+      } else if (event === 'error') {
+        bubble.querySelector('.bubble').innerHTML =
+          '<span style="color:var(--danger)">' + escapeHtml(data) + '</span>';
+      } else if (event === 'done') {
+        bubble.querySelector('.bubble').classList.remove('cursor');
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      bubble.querySelector('.bubble').innerHTML =
+        '<span style="color:var(--danger)">请求失败：' + escapeHtml(e.message) + '</span>';
+    }
+  } finally {
+    $('btnSend').disabled = false;
+    $('btnStop').style.display = 'none';
+    controller = null;
+    refreshStats();
+  }
+}
+
+$('btnSend').onclick = send;
+$('btnStop').onclick = () => controller && controller.abort();
+$('question').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+refreshStats();
+</script>
+</body>
+</html>
