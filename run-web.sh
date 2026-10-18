@@ -4,7 +4,12 @@
 #   用法： bash run-web.sh
 #
 # 启动前先设密钥（关掉窗口后失效）：
-#   export AI_API_KEY=sk-xxxxxxxx
+cd "F:/WorkBuddy/项目/ai-rag-demo"
+export AI_API_KEY=sk-ddpdabqjsruheolfjmhygffrjghqcinscksvzvvqbncaqaor
+
+bash run-web.sh
+
+#   export AI_API_KEY=sk-ddpdabqjsruheolfjmhygffrjghqcinscksvzvvqbncaqaor
 #   可选： export AI_CHAT_MODEL=Qwen/Qwen2.5-7B-Instruct
 #         export AI_EMBED_MODEL=BAAI/bge-m3
 #
